@@ -1,0 +1,22 @@
+mode: hardware
+streamlit_refresh_ms: 3000
+db_path: securelan.db
+
+crypto:
+  fernet_key_path: .securelan_fernet.key
+  hmac_key_path: .securelan_hmac.key
+
+serial:
+  port: COM3
+  baudrate: 9600
+  timeout: 2
+  username: super
+  password: rvu
+
+detection:
+  mac_flood_threshold: 50
+  mac_poll_interval_sec: 15
+
+arp:
+  interface: eth0
+  sniff_timeout_sec: 2
