@@ -1,133 +1,81 @@
-# SecureLAN Monitor: Student Experiment Guide (Step-by-Step)
+# SecureLAN Monitor: Student Experiment Guide (Refactored, Real Attacks)
 
-This guide is written for first-time students.
-If you follow every step in order, you can run the project in a lab environment.
+This is the correct guide for the refactored build.
+It is designed for your lab case with one switch console port, PC1, and PC2.
 
-## A. Goal of This Experiment
+## A. What You Will Demonstrate
 
-You will run a hardware-only network monitoring app that:
-- Connects to a switch through serial console
-- Monitors MAC table growth (MAC flooding detector)
-- Monitors ARP mapping changes (ARP spoof detector)
-- Auto-runs defense commands when detection triggers
-- Stores cryptographic audit logs
-- Shows all activity in a Streamlit UI
+1. Detection of MAC flood and ARP spoof on real traffic.
+2. Automatic quarantine defense on the offending switch port.
+3. Operator-approved port recovery from quarantine.
+4. Cryptographic audit proof of all actions.
 
-## B. What You Need Before Starting
+## B. Lab Roles and Connections
 
-1. A lab PC (Windows preferred for this guide)
-2. Python 3.10 or newer
-3. USB-to-Serial adapter and console cable
-4. Access to Ruckus ICX 7150 console port
-5. Switch username and password
-6. Local admin rights on PC (needed for packet sniffing setup)
-7. Project folder available on lab PC
+Use this exact mapping:
 
-## C. Physical Setup (Do This First)
+1. Switch: Ruckus ICX7150
+2. PC1 (Defender + Operator):
+   - USB-to-serial cable to switch console port
+   - Ethernet cable to a switch access port
+   - Runs app.py
+3. PC2 (Attacker):
+   - Ethernet cable to another switch access port
+   - Runs attack scripts
 
-1. Power on the switch.
-2. Connect USB-to-Serial adapter to lab PC.
-3. Connect adapter cable to switch console port.
-4. Connect PC network interface to lab network where ARP traffic can be observed.
+Why:
+- PC1 needs console for control and data NIC for ARP observation.
+- PC2 generates attack traffic into the same VLAN.
 
-Important:
-- Console cable is for serial commands.
-- Network interface is for ARP sniffing.
-- You need both for full experiment behavior.
+## C. PC1 Software Setup
 
-## D. Open Terminal in Project Folder
+Open PowerShell as Administrator on PC1.
 
-Open PowerShell and run:
+1. Go to project folder
 
 ```powershell
 Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"
 ```
 
-Check files exist:
-
-```powershell
-Get-ChildItem
-```
-
-You should see app.py, monitor.py, serial_engine.py, db.py, crypto_log.py, config.yaml, requirements.txt.
-
-## E. Create Python Environment and Install Packages
-
-1. Check Python:
-
-```powershell
-python --version
-```
-
-2. Create virtual environment:
+2. Create and activate virtual environment
 
 ```powershell
 python -m venv .venv
-```
-
-3. Activate virtual environment:
-
-```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-4. Upgrade pip:
-
-```powershell
-python -m pip install --upgrade pip
-```
-
-5. Install project requirements:
+3. Install dependencies
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-6. Confirm imports:
+4. Install Npcap if not already installed
+- https://npcap.com/
+
+5. Verify imports
 
 ```powershell
 python -c "import streamlit, serial, scapy, cryptography, pandas, yaml, plotly; print('All imports OK')"
 ```
 
-## F. Install Npcap (Windows Required for ARP Sniffing)
+## D. Discover Correct Interface Values
 
-1. Download from https://npcap.com/
-2. Install with default options.
-3. Close and reopen terminal after install.
-4. Re-activate venv:
-
-```powershell
-Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"
-.\.venv\Scripts\Activate.ps1
-```
-
-## G. Find Correct COM Port and Network Interface
-
-### 1) Find COM Port
-
-Run:
+1. Find console COM port
 
 ```powershell
 mode
 ```
 
-Look for COM entries (example COM3, COM4).
-Use the actual console adapter COM port in config.yaml.
-
-### 2) Find NIC Interface Name for ARP
-
-Run:
+2. Find active NIC name
 
 ```powershell
 Get-NetAdapter | Select-Object Name, Status, InterfaceDescription
 ```
 
-Choose the active interface connected to your lab network.
-Use this exact name in config.yaml arp.interface.
+## E. Configure config.yaml
 
-## H. Edit config.yaml Correctly
-
-Open config.yaml and set values:
+Set active keys like this:
 
 ```yaml
 mode: hardware
@@ -142,36 +90,26 @@ serial:
   port: COM3
   baudrate: 9600
   timeout: 2
-  username: admin
-  password: admin
+  username: your_switch_user
+  password: your_switch_password
 
 detection:
-  mac_flood_threshold: 50
-  mac_poll_interval_sec: 15
+  poll_interval_sec: 10
+
+network:
+  quarantine_vlan: 99
+  access_vlan: 1
 
 arp:
   interface: Ethernet
   sniff_timeout_sec: 2
 ```
 
-Replace:
-- COM3 with your real COM port
-- username/password with your real switch credentials
-- Ethernet with your real NIC name
+Important:
+- Use your real COM port and NIC name.
+- Do not use old keys mac_flood_threshold or mac_poll_interval_sec.
 
-## I. Pre-Run Health Check
-
-1. Compile project files:
-
-```powershell
-python -m py_compile app.py monitor.py serial_engine.py crypto_log.py db.py simulator.py
-```
-
-2. If no output appears, compile check passed.
-
-## J. Run the Application
-
-Start Streamlit:
+## F. Start the App on PC1
 
 ```powershell
 streamlit run app.py
@@ -179,202 +117,139 @@ streamlit run app.py
 
 Open the URL shown in terminal (usually http://localhost:8501).
 
-## K. Verify Startup Works (Must Pass)
+## G. Verify Startup Baseline (Must Pass)
 
-On LIVE MONITOR page:
-1. Current mode should show HARDWARE.
-2. Monitor status should show RUNNING.
+On ATTACK CONSOLE and NETWORK STATUS pages, verify these startup actions happened:
 
-On SWITCH CONSOLE page:
-1. You should see SYSTEM startup command records.
-2. You should see command and output text for:
-- enable
-- skip-page-display
+1. enable
+2. skip-page-display
+3. show arp
+4. show interfaces brief
+5. Per active port hardening:
+   - port security
+   - port security max-mac-count 1
+   - port security violation shutdown
+6. ip arp inspection vlan 1
 
-If these are not visible, check troubleshooting section below.
+If these fail, fix serial credentials and port settings first.
 
-## L. Manual Command Test (Basic Functionality)
+## H. Manual Sanity Check (Before Attack)
 
-In SWITCH CONSOLE manual command box, run each command one by one:
+In ATTACK CONSOLE, run these commands from the manual command box:
 
-1. show mac-address
-2. show arp
-3. show interfaces brief
+1. show arp
+2. show interfaces brief
+3. show port security
 
-For each command, confirm table shows:
-- timestamp
-- source
-- command
-- output
-- HMAC signature
+Confirm each command appears with output and HMAC signature.
 
-## M. Detector Observation Steps
+## I. Real MAC Flood Demonstration (PC2)
 
-### 1) MAC Flood Detector Observation
-
-What it uses:
-- Repeated show mac-address output
-- Current MAC count, previous MAC count, delta, threshold
-
-Where to see:
-- LIVE MONITOR page (MAC Flood detector block)
-- MAC count line chart
-
-For classroom demo:
-- You can lower detection.mac_flood_threshold in config.yaml (example 5) to observe trigger faster in active lab traffic.
-- Restart app after config changes.
-
-### 2) ARP Spoof Detector Observation
-
-What it uses:
-- ARP replies captured on arp.interface
-- Tracks IP to MAC mapping
-- Flags if same IP appears with a different MAC
-
-Where to see:
-- LIVE MONITOR ARP detector block
-- Last suspicious mapping field
-
-Note:
-- If no ARP traffic is visible on selected interface, detector will remain quiet.
-- Pick the correct active network interface.
-
-## M1. Button-Based Safe Demo Trigger (Recommended for Viva)
-
-On LIVE MONITOR page:
-1. Click Inject MAC Flood.
-2. Wait for next refresh.
-3. Confirm MAC_FLOOD event appears.
-4. Confirm defense command appears on SWITCH CONSOLE:
-  - port security max-mac-count 5
-
-Then:
-1. Click Inject ARP Spoof.
-2. Wait for next refresh.
-3. Confirm ARP_SPOOF event appears.
-4. Confirm defense command appears on SWITCH CONSOLE:
-  - ip arp inspection vlan 1
-
-These demo buttons are safe synthetic triggers and do not send attack packets.
-
-## N. Defense Command Validation
-
-When detection happens, verify on SWITCH CONSOLE page:
-
-For MAC_FLOOD:
-- command should appear: port security max-mac-count 5
-
-For ARP_SPOOF:
-- command should appear: ip arp inspection vlan 1
-
-Both must show output text and HMAC signature.
-
-## O. Audit Trail Validation
-
-Go to AUDIT TRAIL page:
-
-1. Confirm rows exist with:
-- timestamp
-- action_type
-- description
-- prev_hash
-- entry_hash
-
-2. Click Verify Chain.
-- Expected: Chain verified.
-
-3. Select any audit id.
-- Confirm encrypted blob is shown.
-- Confirm decrypted plaintext is shown.
-
-4. Optional: click Demo Tamper Test.
-- Expected: tamper detected message.
-
-## P. Save Artifacts for Report Submission
-
-Collect these for your lab record:
-
-1. Screenshot of LIVE MONITOR showing detector stats
-2. Screenshot of SWITCH CONSOLE showing command/output and HMAC
-3. Screenshot of AUDIT TRAIL with Verify Chain success
-4. Copy of config.yaml with password redacted
-5. Terminal output of:
+On PC2, open terminal in project folder and run:
 
 ```powershell
-python --version
-pip install -r requirements.txt
-python -m py_compile app.py monitor.py serial_engine.py crypto_log.py db.py simulator.py
+python mac_flood_attack.py --iface "<PC2_Interface_Name>"
 ```
 
-## Q. Stop the Experiment Safely
+Watch PC1 UI and confirm:
 
-1. In terminal running Streamlit, press Ctrl+C.
-2. Keep DB and key files for later review:
-- securelan.db
-- .securelan_fernet.key
-- .securelan_hmac.key
+1. ATTACK_EVENT appears with type MAC_FLOOD.
+2. AUTO_DEFENSE sequence appears:
+   - configure terminal
+   - vlan 99 untagged <offending_port> (or your configured quarantine VLAN)
+   - exit
+3. Offending port appears in Quarantine Panel.
 
-## R. Troubleshooting (Student-Friendly)
+Stop attack with Ctrl+C on PC2.
 
-### Problem 1: Serial open failed
+## J. Real ARP Spoof Demonstration (PC2)
 
-Checks:
-1. Cable connected properly
-2. Correct COM port in config.yaml
-3. No other app using same COM port
+Recommended mapping:
+- target: PC1 IP
+- gateway: switch SVI IP (or actual gateway IP)
 
-Fix:
-- Update serial.port and restart app.
+On PC2 run:
 
-### Problem 2: Login not successful
+```powershell
+python arp_spoof_attack.py --iface "<PC2_Interface_Name>" --target <PC1_IP> --gateway <Gateway_IP>
+```
 
-Checks:
-1. Correct username/password
-2. Correct baudrate
-3. Switch prompt appears on console connection
+Watch PC1 UI and confirm:
 
-Fix:
-- Correct credentials and restart app.
+1. ATTACK_EVENT appears with type ARP_SPOOF.
+2. Command record shows lookup: show mac-address <attacker_mac>.
+3. AUTO_DEFENSE quarantine command sequence runs for attacker port.
+4. Quarantine panel includes attacker port.
 
-### Problem 3: ARP sniff error
+Stop attack with Ctrl+C on PC2.
 
-Checks:
-1. Npcap installed
-2. Terminal has admin rights
-3. arp.interface is correct active NIC
+## K. Recovery Demonstration (PC1)
 
-Fix:
-- Install Npcap, run terminal as admin, correct interface name.
+In ATTACK CONSOLE Quarantine Panel:
 
-### Problem 4: No events showing
+1. Click Authorize Port Recovery on one quarantined port.
+2. Confirm recovery sequence appears:
+   - configure terminal
+   - vlan <access_vlan> untagged <port>
+   - interface ethernet <id>
+   - enable
+   - exit
+   - exit
+3. Confirm PORT_RECOVERY_EVENT appears.
+4. Confirm port is removed from quarantined list.
 
-Checks:
-1. Monitor status is RUNNING
-2. show mac-address works manually
-3. Interface receives ARP traffic
+If recovery command is rejected by switch, port remains quarantined and ERROR_EVENT is shown.
 
-Fix:
-- Reduce threshold for demo visibility and verify traffic source.
+## L. Audit Proof Demonstration
 
-### Problem 5: Verify Chain fails
+Go to AUDIT & PROOF page:
 
-Checks:
-1. Ensure DB file is not externally modified
-2. Do not edit rows manually
+1. Click Verify Now.
+2. Confirm chain verification success.
+3. Open latest ATTACK_EVENT and PORT_RECOVERY entries.
+4. Click View Encrypted Blob and View Decrypted.
 
-Fix:
-- Restart with fresh DB if needed for clean run.
+This completes end-to-end proof: detection -> defense -> recovery -> audit integrity.
 
-## S. Quick Command Block (Copy-Paste)
+## M. Suggested Viva Flow (5-8 Minutes)
+
+1. Show topology and role split: PC1 defender, PC2 attacker.
+2. Show startup hardening commands in ATTACK CONSOLE.
+3. Run MAC flood from PC2 and show auto quarantine on PC1.
+4. Run ARP spoof from PC2 and show attacker port quarantine.
+5. Perform Authorize Port Recovery on PC1.
+6. Verify chain in AUDIT & PROOF.
+
+## N. Troubleshooting
+
+### 1) Serial open failed
+- Check console cable and COM port.
+- Ensure no other program owns the COM port.
+
+### 2) Login failure
+- Recheck username and password.
+- Recheck baudrate.
+
+### 3) ARP sniff failed
+- Run elevated terminal.
+- Ensure Npcap installed.
+- Verify arp.interface value exactly.
+
+### 4) Event detected but quarantine failed
+- Check ERROR_EVENT details in UI.
+- Verify quarantine VLAN exists on switch and command syntax is accepted.
+
+### 5) Recovery did not release port
+- Check ERROR_EVENT for CLI rejection.
+- Ensure access_vlan is correct for your lab VLAN.
+
+## O. Quick Command Block (PC1)
 
 ```powershell
 Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 python -m py_compile app.py monitor.py serial_engine.py crypto_log.py db.py simulator.py
 streamlit run app.py
 ```
-
-This is the minimum sequence to get the experiment running.

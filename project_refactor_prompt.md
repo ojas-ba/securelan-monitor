@@ -1,5 +1,9 @@
 # SecureLAN Monitor — Full Refactor Prompt
 
+> Archived engineering prompt.
+> This file is historical context for the refactor task, not the active runbook.
+> For current setup and execution, use README.md, setup.md, and student_experiment_guide.md.
+
 ## Context for the AI Agent
 
 You are refactoring an existing project called **SecureLAN Monitor**. It is a hardware-oriented network security monitoring and auto-response system running on Python with a Streamlit frontend. It connects to a **Ruckus ICX 7150 12-port switch** via serial console, detects Layer 2 attacks, issues defense commands, and logs everything with a cryptographic audit chain.

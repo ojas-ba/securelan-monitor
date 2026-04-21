@@ -1,151 +1,166 @@
-# SecureLAN Monitor Lab Setup Guide
+# SecureLAN Monitor Lab Setup Guide (Refactored)
 
-This guide gives exact commands for running the project on a lab PC with hardware mode.
+This guide is for the current refactored hardware workflow.
+It is written for the exact lab case with one ICX7150 console port and two PCs.
 
-## 1. Recommended Lab Topology
+## 1. Required Physical Connections
 
-- PC USB to serial adapter connected to switch console port.
-- Switch powered on and reachable through console.
-- Run this project from the lab PC terminal.
+Use this topology:
 
-## 2. Windows Lab Setup (PowerShell)
+- Switch: ICX7150
+- PC1 (Defender):
+  - USB-to-serial cable to switch console port
+  - Ethernet cable to switch data port
+  - Runs app.py
+- PC2 (Attacker):
+  - Ethernet cable to switch data port
+  - Runs attack scripts
 
-Open PowerShell in the project folder and run:
+Why this works:
+- Console cable gives command/control channel to the monitor worker.
+- Data ports carry live ARP and MAC behavior for detection.
+
+## 2. Windows Setup on PC1 (Defender)
+
+Open PowerShell as Administrator:
 
 1. Move to project folder
 Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"
 
-2. Check Python
-python --version
-
-3. Create virtual environment
+2. Create and activate virtual environment
 python -m venv .venv
-
-4. Activate virtual environment
 .\.venv\Scripts\Activate.ps1
 
-5. Upgrade pip
-python -m pip install --upgrade pip
-
-6. Install dependencies
+3. Install dependencies
 pip install -r requirements.txt
 
-7. Verify key imports
+4. Verify imports
 python -c "import streamlit, serial, scapy, cryptography, pandas, yaml, plotly; print('Imports OK')"
 
-8. Find COM ports
+5. Find serial COM port
 mode
 
-9. Edit config.yaml values before start
-- mode: hardware
-- serial.port: COMx from mode output
-- serial.baudrate: usually 9600
-- serial.username and serial.password: your switch credentials
-- arp.interface: NIC name used for sniffing
+6. Find active NIC name for sniffing
+Get-NetAdapter | Select-Object Name, Status, InterfaceDescription
 
-10. Start app
+7. Edit config.yaml with correct values
+
+Required active keys:
+- mode: hardware
+- serial.port: your COM port
+- serial.baudrate: usually 9600
+- serial.username and serial.password
+- detection.poll_interval_sec
+- network.quarantine_vlan
+- network.access_vlan (optional; default is 1)
+- arp.interface: exact NIC Name from Get-NetAdapter
+- arp.sniff_timeout_sec
+
+8. Start app
 streamlit run app.py
 
-## 3. Linux Lab Setup (if needed)
+## 3. Linux Setup (If Needed)
 
-1. Move to project folder
-cd /path/to/NS_Project
-
-2. Check Python
-python3 --version
-
-3. Create virtual environment
-python3 -m venv .venv
-
-4. Activate virtual environment
-source .venv/bin/activate
-
-5. Upgrade pip
-python -m pip install --upgrade pip
-
-6. Install dependencies
-pip install -r requirements.txt
-
-7. Discover serial ports
-ls /dev/ttyUSB*
-
-8. Update config.yaml
-- serial.port: /dev/ttyUSB0 (or correct one)
-- arp.interface: correct interface name
-
-9. Start app with privileges if required for sniffing
+1. cd /path/to/NS_Project
+2. python3 -m venv .venv
+3. source .venv/bin/activate
+4. pip install -r requirements.txt
+5. ls /dev/ttyUSB*
+6. update config.yaml serial.port and arp.interface
+7. run with privileges if sniffing needs it:
 sudo .venv/bin/streamlit run app.py
 
-## 4. First Successful Run Checklist
+## 4. Startup Validation on PC1
 
-- Live monitor page shows mode as HARDWARE.
-- Monitor status shows RUNNING.
-- Switch console page shows SYSTEM startup commands:
-  - enable
-  - skip-page-display
-- Command output is visible in the console panel.
-- Audit trail page shows entries and Verify Chain passes.
+After streamlit starts, verify:
 
-## 4A. Safe Demo Trigger Flow
+- Page NETWORK STATUS shows switch connection and hardening progress.
+- ATTACK CONSOLE shows SYSTEM startup commands and outputs.
 
-Use LIVE MONITOR buttons for demo:
-- Inject MAC Flood
-- Inject ARP Spoof
+Expected startup command flow:
+- enable
+- skip-page-display
+- show arp
+- show interfaces brief
+- port security max-mac-count 1 and port security violation shutdown per active port
+- ip arp inspection vlan 1
 
-These buttons trigger synthetic detector events only. They do not generate real attack packets.
-When clicked, expected behavior is:
-1. Attack event appears in LIVE MONITOR.
-2. Defense command appears in SWITCH CONSOLE.
-3. Audit entries appear in AUDIT TRAIL.
+## 5. Real Attack Demo on PC2
 
-## 5. Quick Validation Commands
+### 5.1 MAC Flood Demo
 
-Run compile check:
-Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"; python -m py_compile app.py monitor.py serial_engine.py crypto_log.py db.py simulator.py
+On PC2, run:
 
-Run dependency check:
-Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"; .\.venv\Scripts\Activate.ps1; python -c "import streamlit, serial, scapy, cryptography, pandas, yaml, plotly; print('All deps OK')"
+python mac_flood_attack.py --iface "<PC2_Interface_Name>"
 
-## 6. Common Lab Issues and Fast Fixes
+Expected on PC1:
+- ATTACK_EVENT of type MAC_FLOOD
+- AUTO_DEFENSE quarantine sequence in command history
+- port appears in Quarantine Panel
+
+### 5.2 ARP Spoof Demo
+
+On PC2, run:
+
+python arp_spoof_attack.py --iface "<PC2_Interface_Name>" --target <PC1_IP> --gateway <Gateway_IP>
+
+Recommended:
+- Target is PC1 IP.
+- Gateway is switch SVI IP for that VLAN, or your real gateway.
+
+Expected on PC1:
+- ATTACK_EVENT of type ARP_SPOOF
+- show mac-address <attacker_mac> lookup record
+- attacker port quarantine action
+
+## 6. Recovery Demo on PC1
+
+In ATTACK CONSOLE:
+
+1. Locate quarantined port in Quarantine Panel.
+2. Click Authorize Port Recovery.
+3. Verify recovery sequence in command history:
+   - configure terminal
+   - vlan <access_vlan> untagged <port>
+   - interface ethernet <id>
+   - enable
+4. Verify PORT_RECOVERY_EVENT appears.
+
+If switch rejects any recovery command, the port stays quarantined and an ERROR_EVENT is shown.
+
+## 7. Audit and Proof Demo on PC1
+
+Go to AUDIT & PROOF:
+
+1. Click Verify Now.
+2. Open ATTACK_EVENT and PORT_RECOVERY entries.
+3. Click View Encrypted Blob and View Decrypted.
+
+This demonstrates cryptographic chain plus readable forensic details.
+
+## 8. Fast Troubleshooting
 
 1. Serial open failed
-- Verify cable and adapter driver.
-- Re-check COM port with mode.
-- Ensure no other app is holding the same COM port.
+- Check COM port and cable.
+- Ensure no other tool has locked console.
 
-2. Login not progressing
-- Confirm username and password in config.yaml.
-- Confirm switch console prompt appears when pressing Enter in terminal emulator test.
-- Confirm baudrate in config.yaml matches switch console setting.
+2. Login failure
+- Recheck serial.username and serial.password.
+- Recheck baudrate.
 
-3. ARP sniff errors
-- On Windows, install Npcap and reopen terminal.
+3. ARP sniff failed
 - Run terminal as Administrator.
-- Verify arp.interface value is correct.
+- Verify Npcap installed.
+- Verify arp.interface matches active NIC exactly.
 
-4. No command output in UI
-- Check SWITCH CONSOLE page for latest error.
-- Check AUDIT TRAIL for ERROR_EVENT entries.
+4. Event appears but no quarantine
+- Inspect ERROR_EVENT for CLI rejection.
+- Ensure quarantine VLAN exists and command syntax is accepted on switch.
 
-## 7. AI Debug Bundle to Collect
+## 9. Useful Validation Commands
 
-Before asking AI for help, collect:
+Compile check:
+Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"; python -m py_compile app.py monitor.py serial_engine.py crypto_log.py db.py simulator.py
 
-1. OS and Python version
-python --version
-
-2. Dependency installation output
-pip install -r requirements.txt
-
-3. Compile output
-python -m py_compile app.py monitor.py serial_engine.py crypto_log.py db.py simulator.py
-
-4. Redacted config.yaml
-
-5. Last 20 command records from SWITCH CONSOLE page
-
-6. Last 20 audit rows with prev_hash and entry_hash
-
-7. Verify Chain result from AUDIT TRAIL page
-
-8. Exact reproduction steps in numbered order
+Dependency check:
+Set-Location "c:\RV UNIVERSITY STUFF\NS_Project"; .\.venv\Scripts\Activate.ps1; python -c "import streamlit, serial, scapy, cryptography, pandas, yaml, plotly; print('All deps OK')"
