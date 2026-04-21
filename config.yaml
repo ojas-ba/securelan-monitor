@@ -14,8 +14,10 @@ serial:
   password: rvu
 
 detection:
-  mac_flood_threshold: 50
-  mac_poll_interval_sec: 15
+  poll_interval_sec: 10
+
+network:
+  quarantine_vlan: 99
 
 arp:
   interface: eth0
